@@ -6,503 +6,57 @@
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <title>Never Have I Ever - Game</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
 <body>
-  <!-- Name input screen -->
-  <div id="name-screen" class="screen">
-    <h2>Enter your name to join the game</h2>
-    <input type="text" id="playerNameInput" placeholder="Your name" />
-    <button id="submitNameBtn">Join Game</button>
-    <div id="loading-message" class="hidden waiting-message">Connecting to game...</div>
-    <div id="error-message" class="hidden error"></div>
-  </div>
-
-  <!-- Game screen -->
-  <div id="game-screen" class="screen hidden">
-    <div class="game-info">
-      <h2>Never Have I Ever</h2>
-      <p id="playerInfo">Player: <span id="player-name-display"></span></p>
-      <p id="gameIdInfo">Game Code: <span id="game-id-display"></span></p>
+  <header>
+    <h1 id="game-title">Never Have I Ever</h1>
+    <div class="game-details">
+      <span id="player-count-display">Players: <span id="player-count">0</span></span>
     </div>
+  </header>
 
-    <div id="waiting-area">
-      <h3>Waiting for host to start the game...</h3>
-      <div class="player-status">
-        <h4>Players in lobby:</h4>
-        <ul id="player-list" class="player-list"></ul>
-      </div>
-      <div id="waiting-host-controls" class="hidden">
-        <button id="start-game-btn">Start Game</button>
-      </div>
-    </div>
-
-    <div id="question-area" class="hidden">
-      <h3>Current Question:</h3>
-      <p id="current-question" class="game-question">Loading question...</p>
-
-      <div class="answer-buttons">
-        <button id="answer-yes" class="answer-btn">I have</button>
-        <button id="answer-no" class="answer-btn">I have not</button>
-      </div>
-
-      <div id="answers-section">
-        <h3>Player Responses:</h3>
-        <ul id="answers-list"></ul>
-      </div>
-      
-      <div id="host-controls" class="hidden">
-        <button id="next-question-btn">Next Question</button>
-      </div>
-    </div>
-
-    <div id="game-over-area" class="hidden">
-      <h3>Game Over!</h3>
-      <p>No more questions left. Hope you had fun!</p>
-      <button id="return-home-btn">Return to Home</button>
-    </div>
-  </div>
+  <!-- Waiting area (before game starts) -->
+  <div class="game-section" id="waiting-area">
+    <h2>Waiting for Game to Start</h2>
+    <p>The host will start the game once everyone has joined.</p>
     
+    <div class="players-container">
+      <h3>Players in the game:</h3>
+      <ul id="players-list"></ul>
+    </div>
+    
+    <div id="host-controls" class="hidden">
+      <h3>Host Controls</h3>
+      <p>You are the host of this game. Start the game when everyone has joined.</p>
+      <button id="start-game-btn">Start Game</button>
+    </div>
+  </div>
+
+  <!-- Question area (during the game) -->
+  <div class="game-section hidden" id="question-area">
+    <div class="question-container">
+      <p id="current-question" class="game-question"></p>
+      
+      <div id="answer-buttons" class="answer-buttons">
+        <button id="answer-yes" class="answer-yes">I Have</button>
+        <button id="answer-no" class="answer-no">I Have Not</button>
+      </div>
+    </div>
+    
+    <div id="answers-area" class="answers-container hidden">
+      <h3>Answers:</h3>
+      <div id="answers-list"></div>
+    </div>
+    
+    <div id="action-buttons" class="action-buttons">
+      <button id="next-question" class="hidden">Next Question</button>
+    </div>
+  </div>
+  
+  <!-- Notification area -->
   <div id="notification" class="notification hidden"></div>
 
-  <script>
-    // Game variables
-    let playerName = '';
-    let gameId = '';
-    let playerId = '';
-    let isHost = false;
-    let hasAnswered = false;
-    let socket = null;
-    let isServerMode = true;
-
-    // DOM Elements
-    const nameScreen = document.getElementById('name-screen');
-    const gameScreen = document.getElementById('game-screen');
-    const submitNameBtn = document.getElementById('submitNameBtn');
-    const answerYesBtn = document.getElementById('answer-yes');
-    const answerNoBtn = document.getElementById('answer-no');
-    const nextQuestionBtn = document.getElementById('next-question-btn');
-    const waitingArea = document.getElementById('waiting-area');
-    const waitingHostControls = document.getElementById('waiting-host-controls');
-    const questionArea = document.getElementById('question-area');
-    const hostControls = document.getElementById('host-controls');
-    const gameOverArea = document.getElementById('game-over-area');
-    const playerNameDisplay = document.getElementById('player-name-display');
-    const gameIdDisplay = document.getElementById('game-id-display');
-    const playerList = document.getElementById('player-list');
-    const currentQuestionElement = document.getElementById('current-question');
-    const answersSection = document.getElementById('answers-section');
-    const answersList = document.getElementById('answers-list');
-    const loadingMessage = document.getElementById('loading-message');
-    const errorMessage = document.getElementById('error-message');
-    const notification = document.getElementById('notification');
-    const startGameBtn = document.getElementById('start-game-btn');
-    const returnHomeBtn = document.getElementById('return-home-btn');
-
-    // Get URL parameters
-    function getUrlParams() {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        gameId: params.get('game'),
-        host: params.get('host') === 'true',
-        playerId: params.get('player')
-      };
-    }
-
-    // On page load
-    document.addEventListener('DOMContentLoaded', () => {
-      // Get URL parameters
-      const { gameId: urlGameId, host: urlIsHost, playerId: urlPlayerId } = getUrlParams();
-      
-      // If game ID in URL, store it
-      if (urlGameId) {
-        gameId = urlGameId;
-        isHost = urlIsHost;
-        
-        // If player ID is provided, use it and go directly to game screen
-        if (urlPlayerId) {
-          playerId = urlPlayerId;
-          // Fetch game info from API
-          fetchGameInfo(gameId, playerId);
-        }
-      }
-      
-      // Set up UI event listeners
-      setupEventListeners();
-    });
-    
-    // Fetch game information from the server API
-    function fetchGameInfo(gameId, playerId) {
-      // First, get game details
-      fetch(`/api/games/${gameId}`)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Game not found');
-          }
-          return response.json();
-        })
-        .then(gameData => {
-          console.log('Game data:', gameData);
-          
-          // Find this player in the players list
-          const thisPlayer = gameData.players.find(p => p.id === playerId);
-          if (!thisPlayer) {
-            throw new Error('Player not found in game');
-          }
-          
-          // Set player info
-          playerName = thisPlayer.name;
-          isHost = thisPlayer.is_host;
-          
-          // Update game info display
-          playerNameDisplay.textContent = playerName;
-          gameIdDisplay.textContent = gameId;
-          
-          // Show host controls if host
-          if (isHost) {
-            waitingHostControls.classList.remove('hidden');
-            hostControls.classList.remove('hidden');
-          }
-          
-          // Update player list
-          updatePlayerList(gameData.players);
-          
-          // Fetch questions
-          return fetch(`/api/games/${gameId}/questions`);
-        })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Failed to load questions');
-          }
-          return response.json();
-        })
-        .then(questionsData => {
-          console.log('Questions data:', questionsData);
-          
-          // If we have questions, show the first one
-          if (questionsData && questionsData.length > 0) {
-            currentQuestionElement.textContent = questionsData[0].text;
-          }
-          
-          // Show game screen
-          showScreen('game-screen');
-        })
-        .catch(error => {
-          console.error('Error loading game:', error);
-          showError(error.message || 'Failed to load game data');
-        });
-    }
-
-    // Set up event listeners
-    function setupEventListeners() {
-      // Submit name button
-      submitNameBtn.addEventListener('click', () => {
-        playerName = document.getElementById('playerNameInput').value.trim();
-        if (playerName) {
-          initializeSocketConnection();
-        } else {
-          showError("Please enter your name");
-        }
-      });
-      
-      // Answer buttons
-      answerYesBtn.addEventListener('click', () => {
-        submitAnswer(true);
-      });
-      
-      answerNoBtn.addEventListener('click', () => {
-        submitAnswer(false);
-      });
-      
-      // Next question button (host only)
-      nextQuestionBtn.addEventListener('click', () => {
-        moveToNextQuestion();
-      });
-      
-      // Start game button (host only)
-      startGameBtn.addEventListener('click', () => {
-        startGame();
-      });
-      
-      // Return to home button
-      returnHomeBtn.addEventListener('click', () => {
-        window.location.href = 'index.html';
-      });
-    }
-
-    // Show a specific screen and hide others
-    function showScreen(screenId) {
-      nameScreen.classList.add('hidden');
-      gameScreen.classList.add('hidden');
-      
-      if (screenId === 'name-screen') {
-        nameScreen.classList.remove('hidden');
-      } else if (screenId === 'game-screen') {
-        gameScreen.classList.remove('hidden');
-      }
-    }
-
-    // Show notification
-    function showNotification(message, type = 'success') {
-      notification.textContent = message;
-      notification.className = `notification ${type}`;
-      notification.classList.remove('hidden');
-      
-      setTimeout(() => {
-        notification.classList.add('hidden');
-      }, 3000);
-    }
-
-    // Show error message
-    function showError(message) {
-      errorMessage.textContent = message;
-      errorMessage.classList.remove('hidden');
-      loadingMessage.classList.add('hidden');
-    }
-
-    // Initialize Socket.IO connection
-    function initializeSocketConnection() {
-      console.log("Initializing Socket.IO connection");
-      loadingMessage.classList.remove('hidden');
-      errorMessage.classList.add('hidden');
-      
-      // Join existing game
-      if (gameId) {
-        joinGame();
-      }
-    }
-
-    // Join an existing game
-    function joinGame() {
-      console.log("Joining game:", gameId);
-      
-      try {
-        // First check if the game exists using the API
-        fetch(`/api/games/${gameId}`)
-          .then(response => {
-            if (!response.ok) {
-              throw new Error('Game not found');
-            }
-            return response.json();
-          })
-          .then(gameData => {
-            // Generate a unique player ID if we don't have one
-            if (!playerId) {
-              playerId = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            }
-            
-            // Join the game through the API
-            return fetch(`/api/games/${gameId}/players`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                player_id: playerId,
-                player_name: playerName
-              })
-            });
-          })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error('Failed to join game');
-            }
-            return response.json();
-          })
-          .then(playerData => {
-            // Update game info
-            isHost = playerData.is_host;
-            playerNameDisplay.textContent = playerName;
-            gameIdDisplay.textContent = gameId;
-            
-            // Show host controls if applicable
-            if (isHost) {
-              waitingHostControls.classList.remove('hidden');
-            }
-            
-            // Show game screen
-            showScreen('game-screen');
-            
-            // Load player list and other game data
-            loadGameData();
-          })
-          .catch(error => {
-            console.error("Error joining game:", error);
-            showError("Failed to join game: " + error.message);
-          });
-      } catch (error) {
-        console.error("Error joining game:", error);
-        showError("Failed to join game: " + error.message);
-      }
-    }
-    
-    // Load game data (players, questions, etc.)
-    function loadGameData() {
-      fetch(`/api/games/${gameId}`)
-        .then(response => response.json())
-        .then(gameData => {
-          updatePlayerList(gameData.players);
-        })
-        .catch(error => {
-          console.error("Error loading game data:", error);
-        });
-    }
-
-    // Start the game (host only)
-    function startGame() {
-      console.log("Starting game");
-      
-      // Load first question
-      fetch(`/api/games/${gameId}/questions`)
-        .then(response => response.json())
-        .then(questions => {
-          if (questions.length > 0) {
-            // Hide waiting area, show question area
-            waitingArea.classList.add('hidden');
-            questionArea.classList.remove('hidden');
-            
-            // Display first question
-            const questionObj = questions[0];
-            currentQuestionElement.textContent = questionObj.text;
-            currentQuestionElement.dataset.questionId = questionObj.id;
-          } else {
-            showError("No questions available for this game");
-          }
-        })
-        .catch(error => {
-          console.error("Error starting game:", error);
-          showError("Failed to start game: " + error.message);
-        });
-    }
-
-    // Submit an answer
-    function submitAnswer(answer) {
-      if (hasAnswered) return;
-      
-      console.log("Submitting answer:", answer);
-      
-      try {
-        // Submit answer via API instead of socket
-        const questionId = document.getElementById('current-question').dataset.questionId;
-        
-        fetch('/api/answers', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            player_id: playerId,
-            question_id: questionId,
-            answer: answer
-          })
-        })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Failed to submit answer');
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log("Answer submitted successfully:", data);
-          
-          // After submitting, fetch all answers for this question
-          return fetch(`/api/questions/${questionId}/answers`);
-        })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Failed to get answers');
-          }
-          return response.json();
-        })
-        .then(answers => {
-          console.log("All answers:", answers);
-          updateAnswersList(answers);
-        })
-        .catch(error => {
-          console.error("Error with answer:", error);
-          showNotification("Failed to submit answer: " + error.message, "error");
-        });
-        
-        // Disable answer buttons
-        answerYesBtn.disabled = true;
-        answerNoBtn.disabled = true;
-        hasAnswered = true;
-        
-        // Visual feedback
-        if (answer) {
-          answerYesBtn.classList.add('selected');
-        } else {
-          answerNoBtn.classList.add('selected');
-        }
-        
-      } catch (error) {
-        console.error("Error submitting answer:", error);
-        showError("Failed to submit answer: " + error.message);
-      }
-    }
-
-    // Move to next question (host only)
-    function moveToNextQuestion() {
-      console.log("Moving to next question");
-      
-      // Get the current question index from the data attribute
-      const currentQuestionId = parseInt(currentQuestionElement.dataset.questionId);
-      
-      // Fetch all questions
-      fetch(`/api/games/${gameId}/questions`)
-        .then(response => response.json())
-        .then(questions => {
-          // Find the current question index
-          const currentIndex = questions.findIndex(q => q.id === currentQuestionId);
-          
-          if (currentIndex < questions.length - 1) {
-            // Show next question
-            const nextQuestion = questions[currentIndex + 1];
-            currentQuestionElement.textContent = nextQuestion.text;
-            currentQuestionElement.dataset.questionId = nextQuestion.id;
-            
-            // Reset answer state
-            hasAnswered = false;
-            answerYesBtn.disabled = false;
-            answerNoBtn.disabled = false;
-            answerYesBtn.classList.remove('selected');
-            answerNoBtn.classList.remove('selected');
-            
-            // Clear answers list
-            answersList.innerHTML = '';
-          } else {
-            // No more questions, show game over
-            questionArea.classList.add('hidden');
-            gameOverArea.classList.remove('hidden');
-          }
-        })
-        .catch(error => {
-          console.error("Error moving to next question:", error);
-          showError("Failed to move to next question: " + error.message);
-        });
-    }
-
-    // Update player list
-    function updatePlayerList(players) {
-      playerList.innerHTML = '';
-      
-      players.forEach(player => {
-        const li = document.createElement('li');
-        li.textContent = player.name + (player.is_host ? ' (Host)' : '');
-        playerList.appendChild(li);
-      });
-    }
-
-    // Update answers list
-    function updateAnswersList(answers) {
-      answersList.innerHTML = '';
-      
-      answers.forEach(answer => {
-        const li = document.createElement('li');
-        li.textContent = `${answer.player_name}: ${answer.answer ? "I have ✓" : "I have not ✗"}`;
-        li.className = answer.answer ? 'answer-yes' : 'answer-no';
-        answersList.appendChild(li);
-      });
-    }
-  </script>
+  <script src="game.js"></script>
 </body>
 </html>
