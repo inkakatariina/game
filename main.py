@@ -1,7 +1,13 @@
 import os
 from flask import Flask, render_template, send_from_directory, request, jsonify
+from flask_socketio import SocketIO
 from models import db, Game, Player, Question, Answer
 from api_routes import api
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -19,6 +25,13 @@ db.init_app(app)
 
 # Register the API blueprint
 app.register_blueprint(api, url_prefix='/api')
+
+# Initialize Socket.IO
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Import socket event handlers
+from socket_utils import register_socket_events
+register_socket_events(socketio)
 
 # Create tables
 with app.app_context():
@@ -85,4 +98,4 @@ def get_question_answers(question_id):
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
