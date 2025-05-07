@@ -1,219 +1,247 @@
-// client.js - Never Have I Ever Game Client
-
 // Global variables
-let players = [];
-let screenHistory = [];
-let selectedModes = [];
-let currentQuestionIndex = 0;
-let questions = [];
+let currentScreen = 'welcome-screen';
 let gameData = null;
-let socket = null;
-let currentGameId = '';
-let currentPlayerId = '';
+let selectedModes = [];
+let currentGameId = null;
+let currentPlayerId = null;
 let isHost = false;
+let localQuestions = [];
+let currentLocalQuestionIndex = 0;
+let socket = null;
 let isConnected = false;
+let players = [];
 
-// Default game data as a backup
-const defaultGameData = {
-  "workAndSchool": [
-    "Never have I ever fallen asleep in class.",
-    "Never have I ever cheated on a test.",
-    "Never have I ever forgotten to do my homework.",
-    "Never have I ever gotten detention.",
-    "Never have I ever skipped a class."
-  ],
-  "Embarrassing & awkward moments": [
-    "Never have I ever called a teacher 'mom' or 'dad'.",
-    "Never have I ever tripped in front of the entire class.",
-    "Never have I ever answered a question confidently and been completely wrong."
-  ],
-  "Tarvel & adventure": [
-    "Never have I ever traveled alone.",
-    "Never have I ever been on a road trip.",
-    "Never have I ever flown in a helicopter."
-  ],
-  "Relationship & dating": [
-    "Never have I ever gone on a blind date.",
-    "Never have I ever been in love.",
-    "Never have I ever kissed someone on the first date."
-  ],
-  "Party and fun": [
-    "Never have I ever gone to a party and not remembered anything the next day.",
-    "Never have I ever thrown a surprise party.",
-    "Never have I ever danced all night at a party."
-  ],
-  "Money & shopping": [
-    "Never have I ever bought something expensive just because it was on sale.",
-    "Never have I ever splurged on something I didn't need.",
-    "Never have I ever spent money on something and immediately regretted it."
-  ],
-  "girlsNight": [
-    "Never have I ever had a girls' night sleepover.",
-    "Never have I ever stayed up all night gossiping with my girlfriends.",
-    "Never have I ever done a DIY spa night with my friends."
-  ]
-};
+// Load the game data from JSON file
+function loadGameData() {
+  return fetch('data.json')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to load game data');
+      }
+      return response.json();
+    })
+    .then(data => {
+      gameData = data;
+      return data;
+    })
+    .catch(error => {
+      console.error('Error loading game data:', error);
+      showNotification('Failed to load game data. Please refresh and try again.', 'error');
+      return null;
+    });
+}
 
-// DOM loaded event
-document.addEventListener('DOMContentLoaded', () => {
-  // Initialize game by loading data
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  // Load game data in background
   loadGameData();
+  
+  // Add event listeners to mode checkboxes
+  document.querySelectorAll('input[name="mode"], input[name="share-mode"]').forEach(checkbox => {
+    checkbox.addEventListener('change', function(e) {
+      // If "All Categories" is checked, check all other boxes
+      if (this.value === 'All of the above' && this.checked) {
+        const checkboxes = this.closest('.mode-selection').querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach(cb => {
+          cb.checked = true;
+        });
+      }
+      
+      // If a regular category is unchecked, uncheck "All Categories"
+      if (this.value !== 'All of the above' && !this.checked) {
+        const allCategoriesCheckbox = this.closest('.mode-selection').querySelector('input[value="All of the above"]');
+        if (allCategoriesCheckbox) {
+          allCategoriesCheckbox.checked = false;
+        }
+      }
+    });
+  });
 });
 
-// Function to show screens
+// Show a specific screen
 function showScreen(id) {
-  const currentVisible = document.querySelector('.screen:not(.hidden)');
-  if (currentVisible) {
-    screenHistory.push(currentVisible.id);
-  }
-
-  document.querySelectorAll('.screen').forEach(screen => screen.classList.add('hidden'));
+  // Hide all screens
+  document.querySelectorAll('.screen').forEach(screen => {
+    screen.classList.add('hidden');
+  });
+  
+  // Show the requested screen
   document.getElementById(id).classList.remove('hidden');
-  document.querySelector('.back-button').classList.toggle('hidden', screenHistory.length === 0);
-}
-
-// Function to go back
-function goBack() {
-  if (screenHistory.length > 0) {
-    const previousScreen = screenHistory.pop();
-    document.querySelectorAll('.screen').forEach(screen => screen.classList.add('hidden'));
-    document.getElementById(previousScreen).classList.remove('hidden');
-    document.querySelector('.back-button').classList.toggle('hidden', screenHistory.length === 0);
+  currentScreen = id;
+  
+  // Show/hide back button
+  const backButton = document.querySelector('.back-button');
+  if (id === 'welcome-screen') {
+    backButton.classList.add('hidden');
+  } else {
+    backButton.classList.remove('hidden');
   }
 }
 
-// Show notification
+// Go back to previous screen
+function goBack() {
+  showScreen('welcome-screen');
+}
+
+// Show a notification message
 function showNotification(message, type = 'success') {
   const notification = document.getElementById('notification');
   notification.textContent = message;
-  notification.className = `notification ${type}`;
+  notification.className = 'notification'; // Reset classes
+  notification.classList.add(type);
   notification.classList.remove('hidden');
   
+  // Auto-hide after 5 seconds
   setTimeout(() => {
     notification.classList.add('hidden');
-  }, 3000);
+  }, 5000);
 }
 
-// Show Join Screen
+// Show join screen
 function showJoinScreen() {
   showScreen('join-game');
-  document.getElementById('player-name-input').focus();
+  document.getElementById('join-loading-message').classList.add('hidden');
+  document.getElementById('join-error-message').classList.add('hidden');
 }
 
-// Load game data from data.json
-function loadGameData() {
-  return new Promise((resolve) => {
-    fetch('data.json')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        return response.json();
-      })
-      .then(data => {
-        gameData = data;
-        console.log("Loaded data.json successfully");
-        resolve(gameData);
-      })
-      .catch(error => {
-        console.error('Error loading questions:', error);
-        gameData = JSON.parse(JSON.stringify(defaultGameData)); // Use a copy of the backup
-        console.log("Using default game data instead");
-        showNotification("Using default questions (couldn't load data.json)", "warning");
-        resolve(gameData);
-      });
-  });
-}
-
-// Start local game (singleplayer)
+// Start a local game
 function startLocalGame() {
+  console.log("Starting local game");
+  
+  // Get selected modes
   selectedModes = [];
-  document.querySelectorAll('input[name="mode"]:checked').forEach(cb => selectedModes.push(cb.value));
+  document.querySelectorAll('input[name="mode"]:checked').forEach(checkbox => {
+    selectedModes.push(checkbox.value);
+  });
   
   if (selectedModes.length === 0) {
     showNotification("Please select at least one category", "error");
     return;
   }
   
+  // Setup and start the game
   setupLocalGameQuestions();
-  showScreen('local-game-screen');
 }
 
-// Set up questions for local game
+// Setup questions for local game
 function setupLocalGameQuestions() {
-  // If gameData is not loaded yet, load it now
+  // If gameData is not loaded yet, wait for it
   if (!gameData) {
     loadGameData().then(data => {
-      extractQuestionsFromData(data);
+      if (data) {
+        localQuestions = extractQuestionsFromData(data);
+        startLocalGameWithQuestions();
+      }
     });
   } else {
-    extractQuestionsFromData(gameData);
+    localQuestions = extractQuestionsFromData(gameData);
+    startLocalGameWithQuestions();
   }
 }
 
-// Extract questions from game data
+// Extract questions from the data based on selected categories
 function extractQuestionsFromData(data) {
-  questions = [];
+  let allQuestions = [];
   
   selectedModes.forEach(mode => {
-    if (data[mode] && Array.isArray(data[mode])) {
-      questions = questions.concat(data[mode]);
+    // Handle "All Categories" special case
+    if (mode === 'All of the above') {
+      Object.keys(data).forEach(category => {
+        if (Array.isArray(data[category])) {
+          data[category].forEach(question => {
+            allQuestions.push({
+              text: question,
+              category: category
+            });
+          });
+        }
+      });
+    } 
+    // Handle regular categories
+    else if (data[mode] && Array.isArray(data[mode])) {
+      data[mode].forEach(question => {
+        allQuestions.push({
+          text: question,
+          category: mode
+        });
+      });
     }
   });
   
   // Shuffle questions
-  questions.sort(() => Math.random() - 0.5);
+  allQuestions.sort(() => Math.random() - 0.5);
+  
+  return allQuestions;
+}
+
+// Start local game with prepared questions
+function startLocalGameWithQuestions() {
+  if (localQuestions.length === 0) {
+    showNotification("No questions available for selected categories", "error");
+    return;
+  }
   
   // Reset question index
-  currentQuestionIndex = 0;
+  currentLocalQuestionIndex = 0;
   
-  // Update game title based on selected modes
+  // Update game mode title
   updateLocalGameModeTitle();
   
   // Show first question
   showLocalQuestion();
-}
-
-// Update local game title based on selected modes
-function updateLocalGameModeTitle() {
-  const title = document.getElementById('local-game-mode-title');
-  if (selectedModes.includes('All of the above')) {
-    title.textContent = "Never Have I Ever: All Categories";
-  } else if (selectedModes.length === 1) {
-    title.textContent = "Never Have I Ever: " + selectedModes[0];
-  } else {
-    title.textContent = `Never Have I Ever: ${selectedModes.length} Categories`;
-  }
-}
-
-// Show current local question
-function showLocalQuestion() {
-  const questionElement = document.getElementById('local-game-question');
   
-  if (currentQuestionIndex < questions.length) {
-    questionElement.textContent = questions[currentQuestionIndex];
+  // Show game screen
+  showScreen('local-game-screen');
+}
+
+// Update the local game mode title based on selected modes
+function updateLocalGameModeTitle() {
+  let title = "Never Have I Ever";
+  
+  if (selectedModes.length === 1 && selectedModes[0] !== 'All of the above') {
+    title += ": " + selectedModes[0];
+  } else if (selectedModes.includes('All of the above')) {
+    title += ": All Categories";
+  } else if (selectedModes.length > 0) {
+    title += ": Mixed Categories";
+  }
+  
+  document.getElementById('local-game-mode-title').textContent = title;
+}
+
+// Show the current local question
+function showLocalQuestion() {
+  if (currentLocalQuestionIndex < localQuestions.length) {
+    const question = localQuestions[currentLocalQuestionIndex];
+    document.getElementById('local-game-question').textContent = "Never have I ever " + question.text;
   } else {
-    questionElement.textContent = "Game Over! No more questions.";
+    document.getElementById('local-game-question').textContent = "Game Over! You've gone through all the questions.";
     document.getElementById('local-next-btn').disabled = true;
   }
 }
 
 // Move to next local question
 function nextLocalQuestion() {
-  currentQuestionIndex++;
+  currentLocalQuestionIndex++;
   showLocalQuestion();
 }
 
 // Create a multiplayer game
 function createMultiplayerGame() {
+  console.log("Setting up multiplayer game");
+  
+  // Get selected modes
   selectedModes = [];
-  document.querySelectorAll('input[name="share-mode"]:checked').forEach(cb => selectedModes.push(cb.value));
+  document.querySelectorAll('input[name="share-mode"]:checked').forEach(checkbox => {
+    selectedModes.push(checkbox.value);
+  });
   
   if (selectedModes.length === 0) {
     showNotification("Please select at least one category", "error");
     return;
   }
   
+  // Get host name
   const hostName = document.getElementById('host-name-input').value.trim();
   if (!hostName) {
     showNotification("Please enter your name", "error");
@@ -226,21 +254,66 @@ function createMultiplayerGame() {
 
 // Initialize game connection
 function initializeSocketConnection(playerName) {
-  console.log("Initializing game connection");
+  console.log("Initializing socket connection");
   showNotification("Connecting to game server...", "info");
   
-  // If joining with a game code
-  if (document.getElementById('join-game').classList.contains('hidden') === false) {
-    const joiningName = document.getElementById('player-name-input').value.trim();
-    const gameCode = document.getElementById('game-code-input').value.trim().toUpperCase();
-    
-    if (joiningName && gameCode) {
-      joinGame(joiningName, gameCode);
-    }
-  } else if (playerName) {
-    // Creating a new game
-    createGame(playerName, selectedModes);
+  // Close existing socket if there is one
+  if (socket) {
+    socket.close();
   }
+  
+  // Initialize Socket.IO connection
+  socket = io.connect(window.location.origin, {
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000
+  });
+  
+  // Set up socket event handlers
+  socket.on('connect', () => {
+    console.log('Socket connected');
+    isConnected = true;
+    showNotification("Connected to game server", "success");
+    
+    // If joining with a game code
+    if (document.getElementById('join-game').classList.contains('hidden') === false) {
+      const joiningName = document.getElementById('player-name-input').value.trim();
+      const gameCode = document.getElementById('game-code-input').value.trim().toUpperCase();
+      
+      if (joiningName && gameCode) {
+        joinGame(joiningName, gameCode);
+      }
+    } else if (playerName) {
+      // Creating a new game
+      createGame(playerName, selectedModes);
+    }
+  });
+  
+  socket.on('connection_response', (data) => {
+    console.log('Connection response:', data);
+  });
+  
+  socket.on('error', (data) => {
+    console.error('Socket error:', data);
+    showNotification(data.message || 'An error occurred', 'error');
+  });
+  
+  socket.on('join_success', (data) => {
+    console.log('Successfully joined game:', data);
+    updateJoinedPlayersList(data.players);
+  });
+  
+  socket.on('player_joined', (data) => {
+    console.log('Player joined:', data);
+    showNotification(`${data.player.name} joined the game`, 'info');
+    updateJoinedPlayersList(data.players);
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('Socket disconnected');
+    isConnected = false;
+    showNotification("Disconnected from game server", "warning");
+  });
 }
 
 // Create a new game on the server
@@ -251,7 +324,7 @@ function createGame(playerName, modes) {
     // Generate a unique player ID
     const playerId = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     
-    // Create game via API instead of socket
+    // Create game via API
     fetch('/api/games', {
       method: 'POST',
       headers: {
@@ -274,6 +347,14 @@ function createGame(playerName, modes) {
       currentGameId = data.id;
       currentPlayerId = playerId;
       isHost = true;
+      
+      // Join the socket.io room for this game
+      if (socket && isConnected) {
+        socket.emit('join_game', {
+          game_id: currentGameId,
+          player_id: currentPlayerId
+        });
+      }
       
       // Update game code display
       document.getElementById('game-code-display').textContent = currentGameId;
@@ -360,7 +441,7 @@ function joinMultiplayerGame() {
   const gameCode = document.getElementById('game-code-input').value.trim().toUpperCase();
   
   if (!playerName) {
-    showNotification("Please select at least one category", "error");
+    showNotification("Please enter your name", "error");
     return;
   }
   
@@ -373,8 +454,13 @@ function joinMultiplayerGame() {
   document.getElementById('join-loading-message').classList.remove('hidden');
   document.getElementById('join-error-message').classList.add('hidden');
   
-  // Use our new direct API approach
-  joinGame(playerName, gameCode);
+  // Initialize socket connection if not already connected
+  if (!socket || !isConnected) {
+    initializeSocketConnection(playerName);
+  } else {
+    // Use existing connection
+    joinGame(playerName, gameCode);
+  }
 }
 
 // Join a game on the server
@@ -420,12 +506,20 @@ function joinGame(playerName, gameCode) {
         currentPlayerId = playerData.id;
         isHost = playerData.is_host;
         
+        // Join the socket.io room for this game
+        if (socket && isConnected) {
+          socket.emit('join_game', {
+            game_id: currentGameId,
+            player_id: currentPlayerId
+          });
+        }
+        
         // Hide loading/error messages
         document.getElementById('join-loading-message').classList.add('hidden');
         document.getElementById('join-error-message').classList.add('hidden');
         
         // Redirect to game
-        window.location.href = `game.html?game=${currentGameId}&player=${currentPlayerId}`;
+        window.location.href = `game.html?game=${currentGameId}&player=${currentPlayerId}&host=${isHost}`;
       })
       .catch(error => {
         console.error("Error joining game:", error);
@@ -497,19 +591,22 @@ function copyGameUrl() {
 
 // Go to the game page as a host
 function goToGameAsHost() {
-  if (currentGameId) {
-    window.location.href = `game.html?game=${currentGameId}&host=true`;
+  if (currentGameId && currentPlayerId) {
+    window.location.href = `game.html?game=${currentGameId}&player=${currentPlayerId}&host=true`;
   }
 }
 
 // Update the list of joined players
-function updateJoinedPlayersList() {
+function updateJoinedPlayersList(playersList) {
+  if (!playersList) return;
+  players = playersList;
+  
   const list = document.getElementById('joined-players-list');
   list.innerHTML = '';
   
-  players.forEach(player => {
+  playersList.forEach(player => {
     const li = document.createElement('li');
-    li.textContent = player.name + (player.isHost ? ' (Host)' : '');
+    li.textContent = player.name + (player.is_host ? ' (Host)' : '');
     list.appendChild(li);
   });
 }
