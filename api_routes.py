@@ -27,8 +27,7 @@ def create_new_game():
     }), 201
 
 @api.route('/games/<game_id>/players', methods=['POST'])
-def join_game():
-    game_id = request.view_args.get('game_id')
+def join_game(game_id):
     data = request.json
     player_id = data.get('player_id')
     player_name = data.get('player_name')
@@ -46,8 +45,7 @@ def join_game():
     }), 201
 
 @api.route('/games/<game_id>/questions', methods=['POST'])
-def add_game_questions():
-    game_id = request.view_args.get('game_id')
+def add_game_questions(game_id):
     data = request.json
     questions = data.get('questions', [])
     
@@ -78,8 +76,7 @@ def submit_answer():
     }), 201
 
 @api.route('/games/<game_id>/end', methods=['POST'])
-def end_game():
-    game_id = request.view_args.get('game_id')
+def end_game(game_id):
     success = mark_game_inactive(game_id)
     
     if success:
